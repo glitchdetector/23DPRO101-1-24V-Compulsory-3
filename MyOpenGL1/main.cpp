@@ -7,6 +7,7 @@
 #include <iostream>
 #include <iomanip>
 #include <vector>
+#include <cmath>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -15,23 +16,31 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/imgui_impl_opengl3.h>
+
 #include "Types.h" // Generic types used in the project
 #include "ObjectFileLoader.h" // Can load and prepare .obj files to be rendered
 #include "ShaderLoader.h" // Can load and prepare shader files  
 #include "Level.h" // Handles loading level meshes
 #include "Surface.h" // Surface function and generation
 #include "Camera.h" // Handles camera controls and updates
+#include "Curve.h"
+#include "Helper.h"
+
+//#define _SHOW_VISUAL_CURVES
 
 // If anything happens to your frame, this is called
 // resizing etc
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-void processInput(GLFWwindow* window);
+bool processInput(GLFWwindow* window, float deltaTime);
 
 // settings
-unsigned int SCR_WIDTH = 800;
-unsigned int SCR_HEIGHT = 800;
+unsigned int SCR_WIDTH = 1080;
+unsigned int SCR_HEIGHT = 720;
 
 // camera
 Camera camera(glm::vec3(0.0f, 2.0f, 3.0f));
@@ -72,6 +81,27 @@ MovementInput processMovementInput(GLFWwindow* window)
         movement.jump += 1;
 
     return movement;
+}
+
+float naive_lerp(float a, float b, float t)
+{
+    return a + t * (b - a);
+}
+
+float naive_lerp_loop(float a, float b, float t, float limit)
+{
+    if (a > limit) a -= limit;
+    if (a < 0.0) a += limit;
+    if (abs(a - b) > limit / 2.0f) b += limit;
+    return naive_lerp(a, b, t);
+}
+
+inline float randomRange(float min, float max)
+{
+    float range = max - min;
+    float modifier = RAND_MAX / range;
+    float result = rand() / modifier;
+    return min + result;
 }
 
 int CurrentRenderMode = GL_TRIANGLES;
@@ -140,7 +170,21 @@ int main(int argc, char** argv)
     }
 
 #pragma endregion
-#pragma region Shader Setup
+
+#pragma region Dear ImGui Setup
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+
+	ImGui_ImplGlfw_InitForOpenGL(window, false);
+	ImGui_ImplOpenGL3_Init("#version 130");
+
+#pragma endregion
+
+	#pragma region Shader Setup
 
     std::string vertexShaderSourceStr = ShaderLoader::LoadShaderFromFile("svert.glsl");
     const char* vertexShaderSource = vertexShaderSourceStr.c_str();
@@ -194,17 +238,137 @@ int main(int argc, char** argv)
     unsigned int viewPosLoc = glGetUniformLocation(shaderProgram, "viewPos");
     unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
     unsigned int entityMatrixLoc = glGetUniformLocation(shaderProgram, "entityMatrix");
+    unsigned int playerPosLoc = glGetUniformLocation(shaderProgram, "playerPos");
+    unsigned int evilmanPosLoc = glGetUniformLocation(shaderProgram, "evilmanPos");
 
 #pragma endregion
 #pragma region Buffer Mesh Loading
 
     CurrentRenderMode = GL_TRIANGLES;
 
+    struct Bird
+    {
+        Curve* path;
+        Entity* entity;
+        float progress = 0.0f;
+        bool reverse = false;
+        float speed = 0.1f;
+        Entity* visualCurve;
+    };
+
+    // Make birds
+    std::vector<Bird*> birds;
+    {
+        int numBirds = 10;
+        for (int i = 0; i < numBirds; i++)
+        {
+            Bird* bird = new Bird();
+            bird->entity = new Entity();
+            {
+                ReadObjectFile("bird.obj", bird->entity->vertices, bird->entity->indices);
+                level.entities.push_back(bird->entity);
+            }
+            bird->progress = (1.0 / numBirds) * i;
+            bird->path = new Curve();
+            {
+                float min_x = -30.0f;
+                float min_y = -30.0f;
+                float max_x = 30.0f;
+                float max_y = 30.0f;
+                int numPoints = 4;
+                for (int i = 0; i < numPoints; i++)
+                {
+                    float point_x = randomRange(min_x, max_x);
+                    float point_y = randomRange(min_y, max_y);
+                    bird->path->points.push_back(glm::vec2(point_x, point_y));
+                }
+            }
+            //bird->entity->transformation.yaw = randomRange(0.0, 360.0);
+
+#ifdef _SHOW_VISUAL_CURVES
+            bird->visualCurve = new Entity();
+            Surface::GenerateFromCurve(bird->path, 50, bird->visualCurve->vertices, bird->visualCurve->indices);
+            bird->visualCurve->bIsAffectedByTerrain = false;
+            level.entities.push_back(bird->visualCurve);
+#endif
+
+            level.entities.push_back(bird->entity);
+            birds.push_back(bird);
+        }
+    }
+
+    Entity* evilman = new Entity();
+    {
+        Bird* bird = new Bird();
+        bird->entity = evilman;
+        {
+            ReadObjectFile("evilman.obj", bird->entity->vertices, bird->entity->indices);
+            level.entities.push_back(bird->entity);
+            bird->progress = 0.0f;
+            bird->speed = 0.02f;
+
+            bird->path = new Curve();
+            {
+                float min_x = -20.0f;
+                float min_y = -20.0f;
+                float max_x = 20.0f;
+                float max_y = 20.0f;
+                int numPoints = 4;
+                for (int i = 0; i < numPoints; i++)
+                {
+                    float point_x = randomRange(min_x, max_x);
+                    float point_y = randomRange(min_y, max_y);
+                    bird->path->points.push_back(glm::vec2(point_x, point_y));
+                }
+            }
+        }
+        level.entities.push_back(bird->entity);
+
+#ifdef _SHOW_VISUAL_CURVES
+        bird->visualCurve = new Entity();
+        Surface::GenerateFromCurve(bird->path, 50, bird->visualCurve->vertices, bird->visualCurve->indices);
+        bird->visualCurve->bIsAffectedByTerrain = false;
+        level.entities.push_back(bird->visualCurve);
+#endif
+
+        birds.push_back(bird);
+    }
+    
+
 #pragma region +Surface Creation
+
     Entity* surface = new Entity();
-    Surface::GenerateSurface(-20.0, 20.0, -20.0, 20.0, 40, surface->vertices, surface->indices);
-    level.entities.push_back(surface);
-    //Surface::GenerateTrees(level, -20.0, 20.0, -20.0, 20.0, 50);
+    {
+        float min_x = -20.0f;
+        float min_y = -20.0f;
+        float max_x = 20.0f;
+    	float max_y = 20.0f;
+        int subdivision = 40;
+        int numTrees = 50;
+
+        Surface::GenerateSurface(min_x, max_x, min_y, max_y, subdivision, surface->vertices, surface->indices);
+        level.entities.push_back(surface);
+
+        surface->bIsAffectedByTerrain = false;
+
+        std::vector<Vertex> treeVertices;
+        std::vector<int> treeIndices;
+        ReadObjectFile("tree.obj", treeVertices, treeIndices);
+
+        for (int i = 0; i < numTrees; i++)
+        {
+            float tree_x = randomRange(min_x, max_x);
+            float tree_y = randomRange(min_y, max_y);
+            Entity* tree = new Entity();
+            tree->vertices = treeVertices;
+            tree->indices = treeIndices;
+            tree->transformation.x = tree_x;
+            tree->transformation.z = tree_y;
+            tree->RadiusCollisionSize = 0.5f;
+            tree->bHasRadiusCollision = true;
+            level.entities.push_back(tree);
+        }
+    }
 
 #pragma endregion
 
@@ -216,6 +380,7 @@ int main(int argc, char** argv)
     {
         unsigned int VBO, VAO, EBO;
         Entity* entity = level.entities[i];
+        entity->GenerateNormals();
 
         glGenVertexArrays(1, &VAO);
         glBindVertexArray(VAO);
@@ -228,14 +393,17 @@ int main(int argc, char** argv)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, entity->indices.size() * sizeof(int), entity->indices.data(), GL_STATIC_DRAW);
 
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
 
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
         glEnableVertexAttribArray(1);
 
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
         glEnableVertexAttribArray(2);
+
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(3);
 
         glBindVertexArray(0);
 
@@ -295,10 +463,25 @@ int main(int argc, char** argv)
 		double currentFrameTime = glfwGetTime();
         deltaTime = currentFrameTime - previousFrameTime;
 		previousFrameTime = currentFrameTime;
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
 		
         // input
         // -----
-        processInput(window);
+        bool bIsCameraControlsInUse = processInput(window, deltaTime);
+
+        // Move camera to player
+        if (!bIsCameraControlsInUse) {
+            glm::vec3 newCameraOffset = camera.Front * -5.0f;
+            glm::vec3 playerPos = player->transformation.Position();
+            newCameraOffset.y += 1.0f;
+
+            camera.Position = playerPos + newCameraOffset;
+            camera.Position.y += Surface::GetGroundZAt2dCoord(playerPos.x, playerPos.z);
+            camera.Position.y = std::max(Surface::GetGroundZAt2dCoord(camera.Position.x, camera.Position.z) + 0.1f, camera.Position.y);
+        }
 
         // render
         // ------
@@ -316,7 +499,7 @@ int main(int argc, char** argv)
         glm::mat4 view = camera.GetViewMatrix();
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-        glUniformMatrix4fv(viewPosLoc, 1, GL_FALSE, glm::value_ptr(camera.Position));
+        glUniform3fv(viewPosLoc, 1, &camera.Position[0]);
 
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
@@ -330,22 +513,82 @@ int main(int argc, char** argv)
             for (int i = 0; i < level.entities.size(); i++)
             {
                 Entity* entity = level.entities[i];
-                if (!entity->bHasRadiusCollision) continue;
+                if (!entity->bHasRadiusCollision && !entity->bHasRadiusTrigger) continue;
 
                 glm::vec2 difference = currentPosition - glm::vec2(entity->transformation.x, entity->transformation.z);
                 float distance = glm::length(difference);
                 float contactDistance = (player->RadiusCollisionSize + entity->RadiusCollisionSize);
                 if (distance < contactDistance)
                 {
-                    // We are colliding with something!
-                    // Move the player away from the object
-                    glm::vec2 newPosition = glm::vec2(entity->transformation.x, entity->transformation.z) + glm::normalize(difference) * contactDistance;
-                    player->transformation.x = newPosition.x;
-                    player->transformation.z = newPosition.y;
+                    if (entity->bHasRadiusTrigger)
+                    {
+                        entity->OnTrigger();
+                    }
+                    if (entity->bHasRadiusCollision)
+                    {
+	                    // We are colliding with something!
+	                    // Move the player away from the object
+	                    glm::vec2 newPosition = glm::vec2(entity->transformation.x, entity->transformation.z) + glm::normalize(difference) * contactDistance;
+	                    player->transformation.x = newPosition.x;
+	                    player->transformation.z = newPosition.y;
+	                    currentPosition = glm::vec2(player->transformation.x, player->transformation.z);
+                    }
                 }
             }
-            player->previousTransformation = player->transformation;
 		}
+
+        // Move birds
+		{
+            for (int i = 0; i < birds.size(); i++)
+            {
+                Bird* bird = birds[i];
+
+                if (bird->reverse)
+					bird->progress -= deltaTime * bird->speed;
+                if (!bird->reverse)
+                    bird->progress += deltaTime * bird->speed;
+
+                // Ping pong path behavior
+                if (bird->progress > 1.0f)
+                    bird->reverse = true;
+                if (bird->progress < 0.0f)
+                    bird->reverse = false;
+
+                //bird->progress = std::min(std::max(bird->progress, 0.0f), 1.0f);
+
+                // Move bird towards new point
+                glm::vec2 newPoint = bird->path->getBezierPoint(bird->progress);
+                bird->entity->transformation.x = naive_lerp(bird->entity->transformation.x, newPoint.x, deltaTime);
+                bird->entity->transformation.z = naive_lerp(bird->entity->transformation.z, newPoint.y, deltaTime);
+
+                // Rotate bird to face direction
+                glm::vec2 difference = glm::normalize(newPoint - glm::vec2(bird->entity->transformation.x, bird->entity->transformation.z));
+                float angle = atan2(difference.y, difference.x);
+                bird->entity->transformation.yaw = naive_lerp(bird->entity->transformation.yaw, glm::radians(glm::degrees(-angle) - 90.0f), deltaTime * 5.0);
+
+                
+            }
+
+		}
+
+        // Update player visually
+		{
+            // Rotate player to match movement direction
+            glm::vec2 difference = glm::normalize(glm::vec2(player->previousTransformation.x, player->previousTransformation.z) - glm::vec2(player->transformation.x, player->transformation.z));
+            if (glm::length(difference) > 0)
+            {
+				float angle = atan2(difference.y, difference.x);
+	            player->transformation.yaw = naive_lerp_loop(player->transformation.yaw, glm::radians(glm::degrees(-angle) + 90.0f), deltaTime * 5.0, glm::radians(360.0));
+            }
+		}
+
+        glm::vec3 playerPosition = glm::vec3(player->transformation.x, player->transformation.y, player->transformation.z);
+        glUniform3fv(playerPosLoc, 1, &playerPosition[0]);
+
+        glm::vec3 evilmanPosition = glm::vec3(evilman->transformation.x, evilman->transformation.y, evilman->transformation.z);
+        glUniform3fv(evilmanPosLoc, 1, &evilmanPosition[0]);
+
+        player->previousTransformation = player->transformation;
 
         for (int i = 0; i < level.entities.size(); i++)
         {
@@ -358,8 +601,8 @@ int main(int argc, char** argv)
             glm::mat4 entityMatrix = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
             glm::vec3 translation = glm::vec3(entity->transformation.x, entity->transformation.y, entity->transformation.z);
 
-            // Account for surface displacement, but ignore the surface so that it won't be applied twice
-            if (entity != surface)
+            // Account for surface displacement if the entity is configured to do so
+            if (entity->bIsAffectedByTerrain)
 				translation.y += Surface::GetGroundZAt2dCoord(translation.x, translation.z);
 
             entityMatrix = glm::translate(entityMatrix, translation);
@@ -367,13 +610,21 @@ int main(int argc, char** argv)
             entityMatrix = glm::rotate(entityMatrix, entity->transformation.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
             entityMatrix = glm::rotate(entityMatrix, entity->transformation.roll, glm::vec3(0.0f, 0.0f, 1.0f));
 
-        	std::cout << "TRANSFORM " << entity->transformation.x << ", " << entity->transformation.y << ", " << entity->transformation.z << std::endl;
+        	//std::cout << "TRANSFORM " << entity->transformation.x << ", " << entity->transformation.y << ", " << entity->transformation.z << std::endl;
 
             glUniformMatrix4fv(entityMatrixLoc, 1, GL_FALSE, glm::value_ptr(entityMatrix));
 
             glDrawElements(CurrentRenderMode, entity->indices.size(), GL_UNSIGNED_INT, 0);
             glBindVertexArray(0); 
         }
+
+        /*ImGui::SeparatorText("Use [W A S D] to Move");
+        ImGui::SeparatorText("Hold [Left Shift] to sprint");
+        ImGui::SeparatorText("Hold [Space] to control camera");
+        ImGui::SeparatorText("Use Mouse to move camera view");*/
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -413,35 +664,59 @@ bool hasKeyJustBeenPressed(GLFWwindow* window, int key) {
 }
 
 bool isWireframeModeEnabled = false;
-void processInput(GLFWwindow* window)
+// Returns if the camera is in use
+bool processInput(GLFWwindow* window, float deltaTime)
 {
     if (hasKeyJustBeenPressed(window, GLFW_KEY_ESCAPE))
         glfwSetWindowShouldClose(window, true);
 
-    if (glfwGetKey(window, GLFW_KEY_KP_8) == GLFW_PRESS)
-        player->transformation.z -= 0.1f;
-    if (glfwGetKey(window, GLFW_KEY_KP_5) == GLFW_PRESS)
-        player->transformation.z += 0.1f;
-    if (glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS)
-        player->transformation.x -= 0.1f;
-    if (glfwGetKey(window, GLFW_KEY_KP_6) == GLFW_PRESS)
-        player->transformation.x += 0.1f;
+    bool bUseCameraControls = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
 
-    std::cout << "PLAYER TRANSFORM " << player->transformation.x << ", " << player->transformation.y << ", " << player->transformation.z << std::endl;
+    if (!bUseCameraControls)
+    {
+        float playerSpeed = 5.0f;
+        glm::vec2 playerInput = glm::vec2(0, 0);
+        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+            playerSpeed *= 2;
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+            playerInput.y += 1.0f;
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+            playerInput.y -= 1.0f;
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+            playerInput.x -= 1.0f;
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+            playerInput.x += 1.0f;
 
-    float cameraSpeed = deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-        cameraSpeed *= 2;
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-        cameraSpeed *= 2;
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camera.ProcessKeyboard(FORWARD, cameraSpeed);
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, cameraSpeed);
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, cameraSpeed);
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, cameraSpeed);
+        glm::vec3 playerImpulse =
+            ((camera.Front * playerInput.y) +
+                (camera.Right * playerInput.x))
+            * playerSpeed * deltaTime;
+
+        player->transformation.x += playerImpulse.x;
+        player->transformation.z += playerImpulse.z;
+    }
+
+
+    //std::cout << "PLAYER TRANSFORM " << player->transformation.x << ", " << player->transformation.y << ", " << player->transformation.z << std::endl;
+
+    if (bUseCameraControls)
+    {
+        float cameraSpeed = deltaTime * 2.0f;
+        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+            cameraSpeed *= 2;
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+            camera.ProcessKeyboard(FORWARD, cameraSpeed);
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+            camera.ProcessKeyboard(BACKWARD, cameraSpeed);
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+            camera.ProcessKeyboard(LEFT, cameraSpeed);
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+            camera.ProcessKeyboard(RIGHT, cameraSpeed);
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+            camera.ProcessKeyboard(UP, cameraSpeed);
+        if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
+		    camera.ProcessKeyboard(DOWN, cameraSpeed);
+    }
 
     // Wireframe mode toggle
     if (hasKeyJustBeenPressed(window, GLFW_KEY_T)) {
@@ -464,13 +739,17 @@ void processInput(GLFWwindow* window)
             std::cout << "Switching to GL_LINE_STRIP" << std::endl;
 			CurrentRenderMode = GL_LINE_STRIP;
 		}
-	}   
+	}
+
+    return bUseCameraControls;
 }
 
 // glfw: whenever the mouse moves, this callback is called
 // -------------------------------------------------------
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+
     float xpos = static_cast<float>(xposIn);
     float ypos = static_cast<float>(yposIn);
 
@@ -494,6 +773,9 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 // ----------------------------------------------------------------------
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
+    ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+    if (ImGui::GetIO().WantCaptureMouse) return;
+
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 

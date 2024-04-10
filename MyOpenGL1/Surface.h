@@ -2,17 +2,8 @@
 #include <cmath>
 #include <vector>
 
-#include "Level.h"
 #include "Types.h"
-#include "ObjectFileLoader.h"
-
-inline float randomRange(float min, float max)
-{
-	float range = max - min;
-	float modifier = RAND_MAX / range;
-	float result = rand() / RAND_MAX;
-	return min + result;
-}
+#include "Curve.h"
 
 class Surface
 {
@@ -25,21 +16,81 @@ public:
 		return sin(x) + (cos(y) / 2) + sin(y);
 	}
 
-	static void GenerateTrees(Level& level, float min_x, float max_x, float min_y, float max_y, int numTrees)
+	static void GenerateFromCurve(Curve* curve, int subdivision, std::vector<Vertex>& vertices, std::vector<int>& indices)
 	{
-		std::vector<Vertex> vertices;
-		std::vector<int> indices;
-		ReadObjectFile("tree.obj", vertices, indices);
-		for (int i = 0; i < numTrees; i++)
+		float step_size = 1.0f / subdivision;
+		for (float t = step_size; t < 1.0f; t += step_size)
 		{
-			float tree_x = randomRange(min_x, max_x);
-			float tree_y = randomRange(min_y, max_y);
-			Entity* tree = new Entity();
-			tree->vertices = vertices;
-			tree->indices = indices;
-			tree->transformation.x = tree_x;
-			tree->transformation.z = tree_y;
-			level.entities.push_back(tree);
+			glm::vec2 previousPoint = curve->getBezierPoint(t - step_size);
+			glm::vec2 currentPoint = curve->getBezierPoint(t);
+			float previousZ = GetGroundZAt2dCoord(previousPoint.x, previousPoint.y);
+			float currentZ = GetGroundZAt2dCoord(currentPoint.x, currentPoint.y);
+			{
+				Vertex v;
+				v.x = previousPoint.x;
+				v.y = previousZ;
+				v.z = previousPoint.y;
+				v.u = 0.7f;
+				v.v = 0.3f;
+				v.r = 0.1f; v.g = 0.0f; v.b = 0.0f;
+				vertices.push_back(v);
+				indices.push_back(vertices.size() - 1);
+			}
+			{
+				Vertex v;
+				v.x = previousPoint.x;
+				v.y = previousZ + 0.1f;
+				v.z = previousPoint.y;
+				v.u = 0.7f;
+				v.v = 0.1f;
+				v.r = 0.1f; v.g = 0.0f; v.b = 0.0f;
+				vertices.push_back(v);
+				indices.push_back(vertices.size() - 1);
+			}
+			{
+				Vertex v;
+				v.x = currentPoint.x;
+				v.y = currentZ;
+				v.z = currentPoint.y;
+				v.u = 0.9f;
+				v.v = 0.3f;
+				v.r = 0.1f; v.g = 0.0f; v.b = 0.0f;
+				vertices.push_back(v);
+				indices.push_back(vertices.size() - 1);
+			}
+			{
+				Vertex v;
+				v.x = previousPoint.x;
+				v.y = previousZ + 0.1f;
+				v.z = previousPoint.y;
+				v.u = 0.7f;
+				v.v = 0.1f;
+				v.r = 0.1f; v.g = 0.0f; v.b = 0.0f;
+				vertices.push_back(v);
+				indices.push_back(vertices.size() - 1);
+			}
+			{
+				Vertex v;
+				v.x = currentPoint.x;
+				v.y = currentZ + 0.1f;
+				v.z = currentPoint.y;
+				v.u = 0.9f;
+				v.v = 0.1f;
+				v.r = 0.1f; v.g = 0.0f; v.b = 0.0f;
+				vertices.push_back(v);
+				indices.push_back(vertices.size() - 1);
+			}
+			{
+				Vertex v;
+				v.x = currentPoint.x;
+				v.y = currentZ;
+				v.z = currentPoint.y;
+				v.u = 0.9f;
+				v.v = 0.3f;
+				v.r = 0.1f; v.g = 0.0f; v.b = 0.0f;
+				vertices.push_back(v);
+				indices.push_back(vertices.size() - 1);
+			}
 		}
 	}
 
@@ -54,56 +105,72 @@ public:
 		{
 			for (float xx = min_x; xx < max_x; xx += step_x)
 			{
-				Vertex v1;
-				v1.x = xx;
-				v1.y = GetGroundZAt2dCoord(xx, yy);
-				v1.z = yy;
-				v1.u = v1.x;
-				v1.v = v1.z;
-				Vertex v2;
-				v2.x = xx;
-				v2.y = GetGroundZAt2dCoord(xx, yy + step_y);
-				v2.z = yy + step_y;
-				v2.u = v2.x;
-				v2.v = v2.z;
-				Vertex v3;
-				v3.x = xx + step_x;
-				v3.y = GetGroundZAt2dCoord(xx + step_x, yy + step_y);
-				v3.z = yy + step_y;
-				v3.u = v3.x;
-				v3.v = v3.z;
-
-				Vertex v4;
-				v4.x = xx;
-				v4.y = GetGroundZAt2dCoord(xx, yy);
-				v4.z = yy;
-				v4.u = v4.x;
-				v4.v = v4.z;
-				Vertex v5;
-				v5.x = xx + step_x;
-				v5.y = GetGroundZAt2dCoord(xx + step_x, yy + step_y);
-				v5.z = yy + step_y;
-				v5.u = v5.x;
-				v5.v = v5.z;
-				Vertex v6;
-				v6.x = xx + step_x;
-				v6.y = GetGroundZAt2dCoord(xx + step_x, yy);
-				v6.z = yy;
-				v6.u = v6.x;
-				v6.v = v6.z;
-
-				vertices.push_back(v1);
-				indices.push_back(vertices.size() - 1);
-				vertices.push_back(v2);
-				indices.push_back(vertices.size() - 1);
-				vertices.push_back(v3);
-				indices.push_back(vertices.size() - 1);
-				vertices.push_back(v4);
-				indices.push_back(vertices.size() - 1);
-				vertices.push_back(v5);
-				indices.push_back(vertices.size() - 1);
-				vertices.push_back(v6);
-				indices.push_back(vertices.size() - 1);
+				{
+					Vertex v;
+					v.x = xx;
+					v.y = GetGroundZAt2dCoord(xx, yy);
+					v.z = yy;
+					v.u = 0.7f;
+					v.v = 0.9f;
+					v.r = 0.0f; v.g = 0.0f; v.b = 0.0f;
+					vertices.push_back(v);
+					indices.push_back(vertices.size() - 1);
+				}
+				{
+					Vertex v;
+					v.x = xx;
+					v.y = GetGroundZAt2dCoord(xx, yy + step_y);
+					v.z = yy + step_y;
+					v.u = 0.7f;
+					v.v = 0.7f;
+					v.r = 0.0f; v.g = 0.0f; v.b = 0.0f;
+					vertices.push_back(v);
+					indices.push_back(vertices.size() - 1);
+				}
+				{
+					Vertex v;
+					v.x = xx + step_x;
+					v.y = GetGroundZAt2dCoord(xx + step_x, yy + step_y);
+					v.z = yy + step_y;
+					v.u = 0.9f;
+					v.v = 0.9f;
+					v.r = 0.0f; v.g = 0.0f; v.b = 0.0f;
+					vertices.push_back(v);
+					indices.push_back(vertices.size() - 1);
+				}
+				{
+					Vertex v;
+					v.x = xx;
+					v.y = GetGroundZAt2dCoord(xx, yy);
+					v.z = yy;
+					v.u = 0.7f;
+					v.v = 0.7f;
+					v.r = 0.0f; v.g = 0.0f; v.b = 0.0f;
+					vertices.push_back(v);
+					indices.push_back(vertices.size() - 1);
+				}
+				{
+					Vertex v;
+					v.x = xx + step_x;
+					v.y = GetGroundZAt2dCoord(xx + step_x, yy + step_y);
+					v.z = yy + step_y;
+					v.u = 0.9f;
+					v.v = 0.9f;
+					v.r = 0.0f; v.g = 0.0f; v.b = 0.0f;
+					vertices.push_back(v);
+					indices.push_back(vertices.size() - 1);
+				}
+				{
+					Vertex v;
+					v.x = xx + step_x;
+					v.y = GetGroundZAt2dCoord(xx + step_x, yy);
+					v.z = yy;
+					v.u = 0.9f;
+					v.v = 0.7f;
+					v.r = 0.0f; v.g = 0.0f; v.b = 0.0f;
+					vertices.push_back(v);
+					indices.push_back(vertices.size() - 1);
+				}
 			}
 		}
 	}
