@@ -6,7 +6,7 @@ in vec2 texture_coord;
 in vec3 Normal;
 
 uniform bool bUseTexture;
-uniform sampler2D texture_1;
+uniform sampler2D texture_0;
 uniform vec3 viewPos;
 uniform vec3 playerPos;
 uniform vec3 evilmanPos;
@@ -38,7 +38,7 @@ void main()
 
 	vec4 emission = vec4(0.0, 0.0, 0.0, 0.0);
 	if (bUseTexture) {
-		gl_FragColor = texture(texture_1, texture_coord);
+		gl_FragColor = texture(texture_0, texture_coord);
 		emission = gl_FragColor * color.r;
 	}
 	else 

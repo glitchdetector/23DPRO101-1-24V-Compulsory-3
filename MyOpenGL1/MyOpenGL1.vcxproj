@@ -604,8 +604,10 @@
     <None Include="includes\glm\gtx\vector_query.inl" />
     <None Include="includes\glm\gtx\wrap.inl" />
     <None Include="libs\glfw3.dll" />
-    <None Include="sfrag.glsl" />
-    <None Include="svert.glsl" />
+    <None Include="shaders\default\sfrag.glsl" />
+    <None Include="shaders\default\svert.glsl" />
+    <None Include="shaders\skybox\sfrag.glsl" />
+    <None Include="shaders\skybox\svert.glsl" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MyOpenGL1.rc" />

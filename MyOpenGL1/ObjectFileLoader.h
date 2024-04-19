@@ -25,7 +25,7 @@ struct ObjectFileReturnInfo
 ObjectFileReturnInfo ReadObjectFile(std::string fileName, std::vector<Vertex>& vertices, std::vector<int>& indices)
 {
     std::ifstream in;
-    in.open(fileName);
+    in.open("models/" + fileName);
 
     ObjectFileReturnInfo output;
 

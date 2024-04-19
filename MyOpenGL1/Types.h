@@ -1,6 +1,13 @@
 ﻿#pragma once
+#include <iostream>
+#include <string>
+
 #include "glm/geometric.hpp"
 #include "glm/vec3.hpp"
+#include "glm/vec2.hpp"
+
+struct Texture;
+struct Shader;
 
 // Single vertex data
 struct Vertex
@@ -16,6 +23,16 @@ struct Transformation
     float scale_x = 1.0, scale_y = 1.0, scale_z = 1.0;
     Transformation() = default;
     glm::vec3 Position() { return glm::vec3(x, y, z); }
+};
+
+struct Material
+{
+    std::vector<Texture*> textures;
+    void AddTexture(Texture* texture)
+    {
+        textures.push_back(texture);
+    }
+    Shader* shader;
 };
 
 struct BoxCollisionDef
@@ -38,11 +55,17 @@ struct Entity
     Transformation transformation;
     Transformation previousTransformation;
 
+    Material* material;
+
+    bool bIsEnabled = true;
+
     BoxCollisionDef collision;
     bool bHasBoxCollision = false;
 
     // Does this entity snap to terrain height?
     bool bIsAffectedByTerrain = true;
+
+    bool bChecksCollision = false;
 
     // Size of the radius collider
     float RadiusCollisionSize = 0.0f;
@@ -50,7 +73,9 @@ struct Entity
     bool bHasRadiusCollision = false;
     // Does this entity trigger the OnTrigger function when the player collides with the radius collider?
     bool bHasRadiusTrigger = false;
-    void OnTrigger() {};
+    virtual void OnTrigger(Entity* other) {};
+
+    virtual void OnTick(float deltaTime) {};
 
     unsigned int EBO, VBO, VAO;
 
@@ -87,4 +112,37 @@ struct Entity
     }
 
     Entity() = default;
+};
+
+class APlayer : public Entity
+{
+public:
+    void OnTrigger(Entity* other) override
+    {
+    }
+
+};
+
+class ABox : public Entity
+{
+public:
+
+	void OnTrigger(Entity* other) override
+	{
+        std::cout << "Box trigger" << std::endl;
+        glm::vec2 currentPosition = glm::vec2(this->transformation.x, this->transformation.z);
+        glm::vec2 difference = currentPosition - glm::vec2(other->transformation.x, other->transformation.z);
+        float distance = glm::length(difference);
+        float contactDistance = (other->RadiusCollisionSize + this->RadiusCollisionSize);
+        glm::vec2 newPosition = glm::normalize(difference) * (distance + 0.1f);
+        this->transformation.x = other->transformation.x + newPosition.x;
+        this->transformation.z = other->transformation.z + newPosition.y;
+	}
+
+    ABox()
+	{
+        bHasRadiusCollision = true;
+        bHasRadiusTrigger = true;
+        RadiusCollisionSize = 0.35f;
+	}
 };

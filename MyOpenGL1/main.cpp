@@ -13,12 +13,13 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #include <imgui/imgui.h>
 #include <imgui/imgui_impl_glfw.h>
 #include <imgui/imgui_impl_opengl3.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <map>
+#include <stb_image.h>
 
 #include "Types.h" // Generic types used in the project
 #include "ObjectFileLoader.h" // Can load and prepare .obj files to be rendered
@@ -49,6 +50,124 @@ float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 
 float deltaTime = 0.0f;	// time between current frame and last frame
+
+struct Texture
+{
+    unsigned int index;
+    std::string name;
+
+    static Texture* LoadFromFile(std::string fileName)
+    {
+        std::cout << "Loading texture " << fileName << std::endl;
+        Texture* tex = new Texture();
+        tex->name = fileName;
+
+        glGenTextures(1, &tex->index);
+        glBindTexture(GL_TEXTURE_2D, tex->index); // all upcoming GL_TEXTURE_2D operations now have effect on this texture object
+        // set the texture wrapping parameters
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        // set texture filtering parameters
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        std::string path = "textures/" + fileName;
+
+        int width, height, nChannels;
+        unsigned char* data = stbi_load(path.c_str(), &width, &height, &nChannels, 0);
+        if (data)
+        {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            std::cout << "Loaded texture " << fileName << std::endl;
+        }
+        else
+        {
+            std::cout << "Failed to load texture " << fileName << std::endl;
+        }
+        stbi_image_free(data);
+
+        return tex;
+    }
+};
+
+struct Shader
+{
+    std::string name;
+    unsigned int shaderProgram;
+
+    std::map<std::string, unsigned int> locations;
+
+    Shader(std::string name)
+    {
+        this->name = name;
+        std::string shaderPath = "shaders/" + name + "/";
+        std::string vertexShaderSourceStr = ShaderLoader::LoadShaderFromFile(shaderPath + "svert.glsl");
+        const char* vertexShaderSource = vertexShaderSourceStr.c_str();
+        std::string fragmentShaderSourceStr = ShaderLoader::LoadShaderFromFile(shaderPath + "sfrag.glsl");
+        const char* fragmentShaderSource = fragmentShaderSourceStr.c_str();
+
+        // build and compile our shader program
+        // ------------------------------------
+        // vertex shader
+        unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+        glCompileShader(vertexShader);
+        // check for shader compile errors
+        int success;
+        char infoLog[512];
+        glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+        if (!success)
+        {
+            glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+            std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+        }
+        // fragment shader
+        unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+        glCompileShader(fragmentShader);
+        // check for shader compile errors
+        glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+        if (!success)
+        {
+            glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+            std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
+        }
+        // link shaders
+        unsigned int shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vertexShader);
+        glAttachShader(shaderProgram, fragmentShader);
+        glLinkProgram(shaderProgram);
+        // check for linking errors
+        glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+        if (!success) {
+            glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+            std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+        }
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+
+        this->shaderProgram = shaderProgram;
+
+        this->locations["timePassedLocation"] = glGetUniformLocation(shaderProgram, "timePassed");
+        this->locations["bUseTextureLoc"] = glGetUniformLocation(shaderProgram, "bUseTexture");
+        this->locations["viewLoc"] = glGetUniformLocation(shaderProgram, "view");
+        this->locations["viewPosLoc"] = glGetUniformLocation(shaderProgram, "viewPos");
+        this->locations["projectionLoc"] = glGetUniformLocation(shaderProgram, "projection");
+        this->locations["entityMatrixLoc"] = glGetUniformLocation(shaderProgram, "entityMatrix");
+        this->locations["playerPosLoc"] = glGetUniformLocation(shaderProgram, "playerPos");
+        this->locations["evilmanPosLoc"] = glGetUniformLocation(shaderProgram, "evilmanPos");
+
+        this->locations["texture0Loc"] = glGetUniformLocation(shaderProgram, "texture_0");
+        this->locations["texture1Loc"] = glGetUniformLocation(shaderProgram, "texture_1");
+        this->locations["texture2Loc"] = glGetUniformLocation(shaderProgram, "texture_2");
+
+        for (std::pair<std::string, unsigned int> location : this->locations)
+        {
+            std::cout << location.first << " = " << location.second << std::endl;
+        }
+    }
+};
 
 bool wasAnyInputPressed = false;
 bool IsKeyHeld(GLFWwindow* window, int key)
@@ -111,6 +230,7 @@ Entity* player = new Entity();
 int main(int argc, char** argv)
 {
     player->RadiusCollisionSize = 0.5f;
+    player->bChecksCollision = true;
     // glfw: initialize and configure
     // ------------------------------
 
@@ -183,68 +303,44 @@ int main(int argc, char** argv)
 	ImGui_ImplOpenGL3_Init("#version 130");
 
 #pragma endregion
+#pragma region Shader Setup
 
-	#pragma region Shader Setup
+    std::vector<Shader*> shaders;
+    Shader* defaultShader = new Shader("default");
+    shaders.push_back(defaultShader);
+    Shader* skyboxShader = new Shader("skybox");
+    shaders.push_back(skyboxShader);
 
-    std::string vertexShaderSourceStr = ShaderLoader::LoadShaderFromFile("svert.glsl");
-    const char* vertexShaderSource = vertexShaderSourceStr.c_str();
-    std::string fragmentShaderSourceStr = ShaderLoader::LoadShaderFromFile("sfrag.glsl");
-    const char* fragmentShaderSource = fragmentShaderSourceStr.c_str();
+#pragma endregion
+#pragma region Material Setup
+    Material* defaultMaterial = new Material();
+    defaultMaterial->shader = defaultShader;
 
-    // build and compile our shader program
-    // ------------------------------------
-    // vertex shader
-    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    glCompileShader(vertexShader);
-    // check for shader compile errors
-    int success;
-    char infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-    // fragment shader
-    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
-    // check for shader compile errors
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if (!success)
-    {
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-    // link shaders
-    unsigned int shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-    // check for linking errors
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-    }
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    // set up shader variables
-    unsigned int timePassedLocation = glGetUniformLocation(shaderProgram, "timePassed");
-    unsigned int bUseTextureLoc = glGetUniformLocation(shaderProgram, "bUseTexture");
-    unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
-    unsigned int viewPosLoc = glGetUniformLocation(shaderProgram, "viewPos");
-    unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-    unsigned int entityMatrixLoc = glGetUniformLocation(shaderProgram, "entityMatrix");
-    unsigned int playerPosLoc = glGetUniformLocation(shaderProgram, "playerPos");
-    unsigned int evilmanPosLoc = glGetUniformLocation(shaderProgram, "evilmanPos");
-
+    Material* skyboxMaterial = new Material();
+    skyboxMaterial->shader = skyboxShader;
 #pragma endregion
 #pragma region Buffer Mesh Loading
 
     CurrentRenderMode = GL_TRIANGLES;
+
+    Entity* Skybox = new Entity();
+    {
+        ReadObjectFile("skybox.obj", Skybox->vertices, Skybox->indices);
+        Skybox->bIsAffectedByTerrain = false;
+        level.entities.push_back(Skybox);
+    }
+
+    Entity* Box = new ABox();
+    {
+        ReadObjectFile("box.obj", Box->vertices, Box->indices);
+        Box->bIsAffectedByTerrain = true;
+        level.entities.push_back(Box);
+        Box->transformation.x = -15.f;
+        Box->transformation.z = -15.f;
+        Box->bChecksCollision = true;
+    }
+
+
 
     struct Bird
     {
@@ -288,6 +384,10 @@ int main(int argc, char** argv)
 #ifdef _SHOW_VISUAL_CURVES
             bird->visualCurve = new Entity();
             Surface::GenerateFromCurve(bird->path, 50, bird->visualCurve->vertices, bird->visualCurve->indices);
+            for (Vertex v : bird->visualCurve->vertices)
+            {
+                v.r = 1.0f;
+            }
             bird->visualCurve->bIsAffectedByTerrain = false;
             level.entities.push_back(bird->visualCurve);
 #endif
@@ -419,28 +519,15 @@ int main(int argc, char** argv)
 #pragma endregion
 
 #pragma region Texture Loading
-    unsigned int texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture); // all upcoming GL_TEXTURE_2D operations now have effect on this texture object
-    // set the texture wrapping parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    // set texture filtering parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    int width, height, nChannels;
-    unsigned char* data = stbi_load(textureFileName.c_str(), &width, &height, &nChannels, 0);
-    if (data)
-    {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    }
-    else
-    {
-        std::cout << "Failed to load texture";
-    }
-    stbi_image_free(data);
+    defaultMaterial->AddTexture(Texture::LoadFromFile("texture.png"));
+
+    skyboxMaterial->AddTexture(Texture::LoadFromFile("texture_skybox.png"));
+    skyboxMaterial->AddTexture(Texture::LoadFromFile("noise_skybox.png"));
+
+    Skybox->material = skyboxMaterial;
+    Box->material = defaultMaterial;
+
 #pragma endregion
 
     glLineWidth(0.1);
@@ -488,25 +575,10 @@ int main(int argc, char** argv)
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         glClear(GL_DEPTH_BUFFER_BIT);
-        
-		// Update shader variables
-		glUniform1f(timePassedLocation, (float) currentFrameTime);
-
-        glBindTexture(GL_TEXTURE_2D, texture);
-
-        glUniform1i(bUseTextureLoc, 1);
-
-        glm::mat4 view = camera.GetViewMatrix();
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-
-        glUniform3fv(viewPosLoc, 1, &camera.Position[0]);
-
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-
+       
         //camera.updateCameraVectors();
 
-        // Do collision checks
+        // Do player collision checks
 		{
             // Top down 2D collisions (radius)
             glm::vec2 currentPosition = glm::vec2(player->transformation.x, player->transformation.z);
@@ -520,10 +592,6 @@ int main(int argc, char** argv)
                 float contactDistance = (player->RadiusCollisionSize + entity->RadiusCollisionSize);
                 if (distance < contactDistance)
                 {
-                    if (entity->bHasRadiusTrigger)
-                    {
-                        entity->OnTrigger();
-                    }
                     if (entity->bHasRadiusCollision)
                     {
 	                    // We are colliding with something!
@@ -533,7 +601,38 @@ int main(int argc, char** argv)
 	                    player->transformation.z = newPosition.y;
 	                    currentPosition = glm::vec2(player->transformation.x, player->transformation.z);
                     }
+                    if (entity->bHasRadiusTrigger)
+                    {
+                        entity->OnTrigger(player);
+                    }
                 }
+            }
+		}
+
+        // Do entity collision triggers
+		{
+            for (Entity* entity : level.entities) 
+            {
+                if (!entity->bChecksCollision) continue;
+                if (!entity->bHasRadiusCollision && !entity->bHasRadiusTrigger) continue;
+
+                glm::vec2 currentPosition = glm::vec2(entity->transformation.x, entity->transformation.z);
+                for (Entity* other : level.entities)
+                {
+                    if (other == entity) continue;
+                    if (!entity->bHasRadiusCollision && !entity->bHasRadiusTrigger) continue;
+
+                    glm::vec2 difference = currentPosition - glm::vec2(other->transformation.x, other->transformation.z);
+                    float distance = glm::length(difference);
+                    float contactDistance = (entity->RadiusCollisionSize + other->RadiusCollisionSize);
+                    if (distance < contactDistance)
+                    {
+                        if (other->bHasRadiusTrigger)
+                            other->OnTrigger(entity);
+                        if (entity->bHasRadiusTrigger)
+                            entity->OnTrigger(other);
+                    }
+                } 
             }
 		}
 
@@ -582,19 +681,65 @@ int main(int argc, char** argv)
             }
 		}
 
-        glm::vec3 playerPosition = glm::vec3(player->transformation.x, player->transformation.y, player->transformation.z);
-        glUniform3fv(playerPosLoc, 1, &playerPosition[0]);
+        // Update skybox
+		{
+            Skybox->transformation.pitch += glm::radians(deltaTime * 1.0f);
+            // Place it on the player so it appears to be infinitely away
+            Skybox->transformation.x = player->transformation.x;
+            Skybox->transformation.z = player->transformation.z;
+            Skybox->transformation.y = camera.Position.y - 10.f;
+		}
 
+        // Update shader variables
+        glm::vec3 playerPosition = glm::vec3(player->transformation.x, player->transformation.y, player->transformation.z);
         glm::vec3 evilmanPosition = glm::vec3(evilman->transformation.x, evilman->transformation.y, evilman->transformation.z);
-        glUniform3fv(evilmanPosLoc, 1, &evilmanPosition[0]);
+
+        glm::mat4 view = camera.GetViewMatrix();
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 500.f);
+
+    	for (Shader* shader : shaders)
+        {
+            glUseProgram(shader->shaderProgram);
+            glUniform1f(shader->locations["timePassedLocation"], (float)currentFrameTime);
+            glUniform1i(shader->locations["bUseTextureLoc"], 1);
+            glUniformMatrix4fv(shader->locations["viewLoc"], 1, GL_FALSE, glm::value_ptr(view));
+            glUniform3fv(shader->locations["viewPosLoc"], 1, &camera.Position[0]);
+            glUniformMatrix4fv(shader->locations["projectionLoc"], 1, GL_FALSE, glm::value_ptr(projection));
+			glUniform3fv(shader->locations["playerPosLoc"], 1, &playerPosition[0]);
+			glUniform3fv(shader->locations["evilmanPosLoc"], 1, &evilmanPosition[0]);
+
+            glUniform1i(shader->locations["texture0Loc"], 0);
+            glUniform1i(shader->locations["texture1Loc"], 1);
+            glUniform1i(shader->locations["texture2Loc"], 2);
+        }
 
         player->previousTransformation = player->transformation;
 
         for (int i = 0; i < level.entities.size(); i++)
         {
             Entity* entity = level.entities[i];
+            Material* material;
+            if (entity->material)
+            {
+                material = entity->material;
+            }
+            else
+            {
+                material = defaultMaterial;
+            }
+            Shader* shader = material->shader;
+            //std::cout << shader->name << std::endl;
             // draw our first triangle
-            glUseProgram(shaderProgram);
+            glUseProgram(shader->shaderProgram);
+            {
+                int textureOffset = 0;
+                for (Texture* texture : material->textures)
+                {
+                    glActiveTexture(GL_TEXTURE0 + textureOffset); // Texture unit 0
+                    glBindTexture(GL_TEXTURE_2D, texture->index);
+                    textureOffset++;
+                }
+            }
 
             glBindVertexArray(i + 1);
             // Calculate the entity matrix
@@ -612,7 +757,7 @@ int main(int argc, char** argv)
 
         	//std::cout << "TRANSFORM " << entity->transformation.x << ", " << entity->transformation.y << ", " << entity->transformation.z << std::endl;
 
-            glUniformMatrix4fv(entityMatrixLoc, 1, GL_FALSE, glm::value_ptr(entityMatrix));
+            glUniformMatrix4fv(shader->locations["entityMatrixLoc"], 1, GL_FALSE, glm::value_ptr(entityMatrix));
 
             glDrawElements(CurrentRenderMode, entity->indices.size(), GL_UNSIGNED_INT, 0);
             glBindVertexArray(0); 
@@ -639,7 +784,10 @@ int main(int argc, char** argv)
         glDeleteVertexArrays(1, &entity->VAO);
         glDeleteBuffers(1, &entity->VBO);
     }
-    glDeleteProgram(shaderProgram);
+    for (Shader* shader : shaders)
+    {
+		glDeleteProgram(shader->shaderProgram);
+    }
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
