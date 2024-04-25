@@ -1000,8 +1000,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="libs\glfw3.dll" />
-    <None Include="shaders\default\svert.glsl" />
-    <None Include="shaders\default\sfrag.glsl" />
+    <None Include="shaders\wireframe\svert.glsl" />
+    <None Include="shaders\wireframe\sfrag.glsl" />
     <None Include="includes\glm\detail\func_common.inl">
       <Filter>Header Files</Filter>
     </None>

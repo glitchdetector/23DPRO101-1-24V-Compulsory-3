@@ -4,27 +4,20 @@
 
 #include "Types.h"
 #include "Curve.h"
+#include "Level.h"
 
 class Surface
 {
 public:
-	// Function to calculate height on the surface
-	static float GetGroundZAt2dCoord(float x, float y)
-	{
-		x /= 4;
-		y /= 4;
-		return sin(x) + (cos(y) / 2) + sin(y);
-	}
-
-	static void GenerateFromCurve(Curve* curve, int subdivision, std::vector<Vertex>& vertices, std::vector<int>& indices)
+	static void GenerateFromCurve(Curve* curve, Level* level, int subdivision, std::vector<Vertex>& vertices, std::vector<int>& indices)
 	{
 		float step_size = 1.0f / subdivision;
 		for (float t = step_size; t < 1.0f; t += step_size)
 		{
 			glm::vec2 previousPoint = curve->getBezierPoint(t - step_size);
 			glm::vec2 currentPoint = curve->getBezierPoint(t);
-			float previousZ = GetGroundZAt2dCoord(previousPoint.x, previousPoint.y);
-			float currentZ = GetGroundZAt2dCoord(currentPoint.x, currentPoint.y);
+			float previousZ = level->GetGroundZAt2dCoord(previousPoint.x, previousPoint.y);
+			float currentZ = level->GetGroundZAt2dCoord(currentPoint.x, currentPoint.y);
 			{
 				Vertex v;
 				v.x = previousPoint.x;
@@ -94,7 +87,7 @@ public:
 		}
 	}
 
-	static void GenerateSurface(float min_x, float max_x, float min_y, float max_y, int subdivision, std::vector<Vertex>& vertices, std::vector<int>& indices)
+	static void GenerateSurface(Level* level, float min_x, float max_x, float min_y, float max_y, int subdivision, std::vector<Vertex>& vertices, std::vector<int>& indices)
 	{
 		float range_x = max_x - min_x;
 		float range_y = max_y - min_y;
@@ -108,7 +101,7 @@ public:
 				{
 					Vertex v;
 					v.x = xx;
-					v.y = GetGroundZAt2dCoord(xx, yy);
+					v.y = level->GetGroundZAt2dCoord(xx, yy);
 					v.z = yy;
 					v.u = 0.7f;
 					v.v = 0.9f;
@@ -119,7 +112,7 @@ public:
 				{
 					Vertex v;
 					v.x = xx;
-					v.y = GetGroundZAt2dCoord(xx, yy + step_y);
+					v.y = level->GetGroundZAt2dCoord(xx, yy + step_y);
 					v.z = yy + step_y;
 					v.u = 0.7f;
 					v.v = 0.7f;
@@ -130,7 +123,7 @@ public:
 				{
 					Vertex v;
 					v.x = xx + step_x;
-					v.y = GetGroundZAt2dCoord(xx + step_x, yy + step_y);
+					v.y = level->GetGroundZAt2dCoord(xx + step_x, yy + step_y);
 					v.z = yy + step_y;
 					v.u = 0.9f;
 					v.v = 0.9f;
@@ -141,7 +134,7 @@ public:
 				{
 					Vertex v;
 					v.x = xx;
-					v.y = GetGroundZAt2dCoord(xx, yy);
+					v.y = level->GetGroundZAt2dCoord(xx, yy);
 					v.z = yy;
 					v.u = 0.7f;
 					v.v = 0.7f;
@@ -152,7 +145,7 @@ public:
 				{
 					Vertex v;
 					v.x = xx + step_x;
-					v.y = GetGroundZAt2dCoord(xx + step_x, yy + step_y);
+					v.y = level->GetGroundZAt2dCoord(xx + step_x, yy + step_y);
 					v.z = yy + step_y;
 					v.u = 0.9f;
 					v.v = 0.9f;
@@ -163,7 +156,7 @@ public:
 				{
 					Vertex v;
 					v.x = xx + step_x;
-					v.y = GetGroundZAt2dCoord(xx + step_x, yy);
+					v.y = level->GetGroundZAt2dCoord(xx + step_x, yy);
 					v.z = yy;
 					v.u = 0.9f;
 					v.v = 0.7f;

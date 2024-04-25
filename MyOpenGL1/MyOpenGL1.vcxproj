@@ -105,6 +105,8 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)\MyOpenGL1\includes;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -604,8 +606,8 @@
     <None Include="includes\glm\gtx\vector_query.inl" />
     <None Include="includes\glm\gtx\wrap.inl" />
     <None Include="libs\glfw3.dll" />
-    <None Include="shaders\default\sfrag.glsl" />
-    <None Include="shaders\default\svert.glsl" />
+    <None Include="shaders\wireframe\sfrag.glsl" />
+    <None Include="shaders\wireframe\svert.glsl" />
     <None Include="shaders\skybox\sfrag.glsl" />
     <None Include="shaders\skybox\svert.glsl" />
   </ItemGroup>

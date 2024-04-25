@@ -1,5 +1,8 @@
 ﻿#pragma once
+#include <fstream>
+#include <iostream>
 #include "Types.h"
+#include "ObjectFileLoader.h"
 
 class Level
 {
@@ -7,7 +10,16 @@ public:
     std::vector<Entity*> entities;
     Transformation playerStart;
     Transformation cameraPosition;
+    bool bIsCameraControllable = true;
     std::string levelName;
+    BoxCollisionDef bounds;
+
+    TwoDimensionalFunction* planeFunction;
+
+    float GetGroundZAt2dCoord(float x, float y)
+    {
+        return planeFunction->f(x, y);
+    }
 
     Level(std::string levelFile)
     {

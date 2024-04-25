@@ -8,6 +8,31 @@
 
 struct Texture;
 struct Shader;
+struct Scene;
+struct Level;
+
+struct TwoDimensionalFunction
+{
+    virtual float f(float x, float y) { return x + y; };
+};
+
+struct TerrainPlane : public TwoDimensionalFunction
+{
+    float f(float x, float y) override
+    {
+        x /= 4;
+        y /= 4;
+        return sin(x) + (cos(y) / 2) + sin(y);
+    }
+};
+
+struct FlatPlane : public TwoDimensionalFunction
+{
+	float f(float x, float y) override
+	{
+        return 0.0f;
+	}
+};
 
 // Single vertex data
 struct Vertex
@@ -57,6 +82,8 @@ struct Entity
 
     Material* material;
 
+    bool bHasAlpha = false;
+
     bool bIsEnabled = true;
 
     BoxCollisionDef collision;
@@ -74,6 +101,7 @@ struct Entity
     // Does this entity trigger the OnTrigger function when the player collides with the radius collider?
     bool bHasRadiusTrigger = false;
     virtual void OnTrigger(Entity* other) {};
+    virtual void OnTrigger(Entity* other, Level& level) {};
 
     virtual void OnTick(float deltaTime) {};
 
@@ -114,6 +142,7 @@ struct Entity
     Entity() = default;
 };
 
+
 class APlayer : public Entity
 {
 public:
@@ -123,10 +152,33 @@ public:
 
 };
 
+class APickup : public Entity
+{
+public:
+    void OnTrigger(Entity* other) override
+    {
+        if (!bIsEnabled) return;
+
+        std::cout << "Pickup triggered!" << std::endl;
+
+        if (dynamic_cast<APlayer*>(other) != nullptr)
+        {
+            std::cout << "Pickup picked up by player!" << std::endl;
+            bIsEnabled = false;
+        }
+    }
+
+	APickup()
+	{
+        bHasRadiusCollision = false;
+        bHasRadiusTrigger = true;
+        RadiusCollisionSize = 0.35f;
+	}
+};
+
 class ABox : public Entity
 {
 public:
-
 	void OnTrigger(Entity* other) override
 	{
         std::cout << "Box trigger" << std::endl;
